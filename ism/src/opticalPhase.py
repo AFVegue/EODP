@@ -83,6 +83,7 @@ class opticalPhase(initIsm):
 
         return toa
 
+    ## IMPLEMENTADO
     def rad2Irrad(self, toa, D, f, Tr):
         """
         Radiance to Irradiance conversion
@@ -92,6 +93,7 @@ class opticalPhase(initIsm):
         :param Tr: Optical transmittance [-]
         :return: TOA image in irradiances [mW/m2]
         """
+        toa = Tr * toa * np.pi / 4 * (D / f) ** 2
         # TODO
         return toa
 
@@ -106,6 +108,8 @@ class opticalPhase(initIsm):
         # TODO
         return toa_ft
 
+
+    ## IMPLEMENTADO
     def spectralIntegration(self, sgm_toa, sgm_wv, band):
         """
         Integration with the ISRF to retrieve one band
