@@ -106,6 +106,12 @@ class opticalPhase(initIsm):
         :return: TOA image in irradiances [mW/m2]
         """
         # TODO
+        GE = np.fft.fft2(toa)
+        Hsys = np.fft.fftshift(Hsys)
+        GE = GE * Hsys
+        toa_ft = np.fft.ifft2(GE)
+        toa_ft = np.real(toa_ft)
+
         return toa_ft
 
 
