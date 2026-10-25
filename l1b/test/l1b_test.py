@@ -197,48 +197,80 @@ def leer_perfil(ruta, nalt=50):
         return toa[nalt, :]
 
 
+
 def plot_figure():
 
-    band = "VNIR-0"
     nalt = 50
-    
-    ruta_eq = os.path.join(output,f"l1b_toa_{band}.nc")
-    ruta_no_eq = os.path.join(output_noteq,f"l1b_toa_{band}.nc")
-    ruta_truth = os.path.join(input_truth,f"ism_toa_isrf_{band}.nc")
 
-    for ruta in (ruta_eq, ruta_no_eq, ruta_truth):
-        if not os.path.isfile(ruta):
-            raise FileNotFoundError(ruta)
+    for band_idx in range(4):
 
-    toa_eq = leer_perfil(ruta_eq, nalt)
-    toa_no_eq = leer_perfil(ruta_no_eq, nalt)
-    toa_truth = leer_perfil(ruta_truth, nalt)
+        band = f"VNIR-{band_idx}"
 
-    act = np.arange(toa_truth.size)
+        ruta_eq = os.path.join(
+            output, f"l1b_toa_{band}.nc"
+        )
 
-    plt.figure(figsize=(12, 6))
+        ruta_no_eq = os.path.join(
+            output_noteq, f"l1b_toa_{band}.nc"
+        )
 
-    # Do not change the data: all three profiles come directly
-    # from the corresponding NetCDF products.
-    plt.plot(act,toa_eq,linewidth=1.5,label="TOA L1B with eq")
-    plt.plot(act,toa_no_eq,linewidth=1.2,label="TOA L1B no eq")
-    plt.plot(act,toa_truth,linewidth=1.5,label="TOA after the ISRF")
+        ruta_truth = os.path.join(
+            input_truth, f"ism_toa_isrf_{band}.nc"
+        )
 
-    plt.title("Effect of the Equalization for VNIR-0")
-    plt.xlabel("ACT pixel [-]")
-    plt.ylabel(r"TOA [mW/m$^2$/sr]")
-    plt.grid(True, alpha=0.5)
-    plt.legend()
-    plt.tight_layout()
+        # Check that all required files exist
+        for ruta in (ruta_eq, ruta_no_eq, ruta_truth):
+            if not os.path.isfile(ruta):
+                raise FileNotFoundError(ruta)
 
-    output_png = os.path.join(output,"Effect of the Equalization for VNIR-0.png")
-    plt.savefig(output_png,dpi=300,bbox_inches="tight")
+        # Read the central ALT row from each product
+        toa_eq = leer_perfil(ruta_eq, nalt)
+        toa_no_eq = leer_perfil(ruta_no_eq, nalt)
+        toa_truth = leer_perfil(ruta_truth, nalt)
 
-    plt.show()
-    plt.close()
+        act = np.arange(toa_truth.size)
 
-    print("\nGráfica guardada en:")
-    print(output_png)
+        plt.figure(figsize=(12, 6))
+
+        plt.plot(
+            act, toa_eq,
+            linewidth=1.5,
+            color="black",
+            label="TOA L1B with eq"
+        )
+
+        plt.plot(
+            act, toa_no_eq,
+            linewidth=1.2,
+            color="red",
+            label="TOA L1B no eq"
+        )
+
+        plt.plot(
+            act, toa_truth,
+            linewidth=1.5,
+            color="blue",
+            label="TOA after the ISRF"
+        )
+
+        plt.title(f"Effect of the Equalization for {band}")
+        plt.xlabel("ACT pixel [-]")
+        plt.ylabel(r"TOA [mW/m$^2$/sr]")
+        plt.grid(True, alpha=0.5)
+        plt.legend()
+        plt.tight_layout()
+
+        output_png = os.path.join(
+            output,
+            f"Effect of the Equalization for {band}.png"
+        )
+
+        plt.savefig(output_png, dpi=300, bbox_inches="tight")
+        plt.show()
+        plt.close()
+
+        print(f"Gráfica guardada en: {output_png}")
+
 
 
 

@@ -8,7 +8,7 @@
 #        - L1B footprint in black
 #        - L1C MGRS grid in red
 #   2. Plot spatial sampling distance [HAVERSINE]
-#      for the central row of the L1B geometry
+#      for the central row and column of the L1B geometry
 #
 # =============================================================================
 

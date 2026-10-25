@@ -2,6 +2,8 @@ import os
 import numpy as np
 import xarray as xr
 
+from auxiliary.constants import constants
+
 # PATHS
 
 BASE = r"C:\Users\aleja\OneDrive\Escritorio\EODP"
@@ -368,8 +370,255 @@ def cross_validate():
     )
 
 
-# MAIN
+
+
+# ============================================================
+# ANALYTICAL vs READ VALUES AT PIXEL [50,75] - ISM
+# ============================================================
+
+import os
+import h5py
+import numpy as np
+
+# ------------------------------------------------------------
+# CONFIGURATION
+# ------------------------------------------------------------
+
+OUTPUT_DIR = (
+    r"C:\Users\aleja\OneDrive\Escritorio\EODP"
+    r"\EODP_TER_2021\EODP_TER_2021"
+    r"\EODP-TS-ISM\myoutput"
+)
+
+PIXEL = (50, 75)
+
+# ISM configuration parameters
+PIX_SIZE = 30e-6
+T_INT = 0.00672
+D = 0.150
+F = 0.5262
+TR = 0.99
+
+WAVELENGTHS = np.array([0.490, 0.665, 0.865, 0.945]) * 1e-6
+
+QE = 0.8
+FWC = 420000
+OCF = 5.4e-6
+ADC_GAIN = 0.56
+BIT_DEPTH = 12
+V_MIN = 0.0
+V_MAX = 0.86
+
+H_PLANCK = 6.62607004e-34
+C_LIGHT = 299792458
+
+PIXEL_AREA = PIX_SIZE**2
+ADC_MAX = 2**BIT_DEPTH - 1
+
+
+# ------------------------------------------------------------
+# READ NETCDF / HDF5 DATA
+# ------------------------------------------------------------
+
+def read_toa(filename, pixel=PIXEL):
+    """Read the toa variable at the requested pixel."""
+    path = os.path.join(OUTPUT_DIR, filename)
+
+    if not os.path.isfile(path):
+        raise FileNotFoundError(
+            f"File not found: {path}"
+        )
+
+    with h5py.File(path, "r") as f:
+        if "toa" not in f:
+            raise KeyError(
+                f"Variable 'toa' not found in {filename}. "
+                f"Available variables: {list(f.keys())}"
+            )
+
+        data = np.asarray(f["toa"])
+
+    if data.ndim < 2:
+        raise ValueError(
+            f"Expected a 2D or higher-dimensional 'toa' array "
+            f"in {filename}; got shape {data.shape}."
+        )
+
+    return float(data[pixel])
+
+
+# ------------------------------------------------------------
+# ANALYTICAL CALCULATION
+# ------------------------------------------------------------
+
+def calculate_analytical_values(band, pixel=PIXEL):
+    """
+    Calculate the radiometric conversion from the stored optical
+    irradiance, then reproduce the voltage-to-DN conversion from
+    the stored detection-phase output.
+
+    PRNU and dark signal are read from their saved intermediate
+    products; they are not independently simulated here.
+    """
+
+    band = int(band)
+    if band not in range(4):
+        raise ValueError("band must be 0, 1, 2, or 3")
+
+    # 1. Radiance after spectral integration (ISRF)
+    radiance = read_toa(
+        f"ism_toa_isrf_VNIR-{band}.nc", pixel
+    )
+
+    # 2. Irradiance after optical phase, including System MTF
+    irradiance = read_toa(
+        f"ism_toa_optical_VNIR-{band}.nc", pixel
+    )
+
+    # 3. Irradiance -> photons
+    # Assumes irradiance is expressed in mW/m^2,
+    # pixel area in m^2, time in seconds, and wavelength in metres.
+    optical_energy = (
+        irradiance * 1e-3 * PIXEL_AREA * T_INT
+    )
+
+    photon_energy = (
+        H_PLANCK * C_LIGHT / WAVELENGTHS[band]
+    )
+
+    photons = optical_energy / photon_energy
+
+    # 4. Photons -> electrons, limited by full-well capacity
+    electrons_analytical = min(
+        photons * QE,
+        FWC
+    )
+
+    electrons_stored = read_toa(
+        f"ism_toa_e_VNIR-{band}.nc", pixel
+    )
+
+    # 5. Read saved detection-stage intermediate products
+    electrons_prnu = read_toa(
+        f"ism_toa_prnu_VNIR-{band}.nc", pixel
+    )
+
+    electrons_dark = read_toa(
+        f"ism_toa_ds_VNIR-{band}.nc", pixel
+    )
+
+    electrons_detection = read_toa(
+        f"ism_toa_detection_VNIR-{band}.nc", pixel
+    )
+
+    # 6. Electrons -> voltage
+    voltage = electrons_detection * OCF * ADC_GAIN
+
+    # 7. Voltage -> DN
+    # This assumes the ISM uses the same linear mapping,
+    # clipping limits, and rounding convention.
+    dn_analytical = np.rint(
+        (voltage - V_MIN) / (V_MAX - V_MIN) * ADC_MAX
+    )
+
+    dn_analytical = int(
+        np.clip(dn_analytical, 0, ADC_MAX)
+    )
+
+    dn_stored = read_toa(
+        f"ism_toa_VNIR-{band}.nc", pixel
+    )
+
+    return {
+        "Radiance": radiance,
+        "Irradiance after MTF": irradiance,
+        "Photons analytical": photons,
+        "Electrons analytical": electrons_analytical,
+        "Electrons stored": electrons_stored,
+        "Electrons after PRNU": electrons_prnu,
+        "Electrons after dark signal": electrons_dark,
+        "Electrons after detection": electrons_detection,
+        "Voltage analytical": voltage,
+        "DN analytical": dn_analytical,
+        "DN stored": dn_stored,
+        "DN difference": dn_analytical - dn_stored,
+    }
+
+
+# ------------------------------------------------------------
+# PRINT COMPARISON TABLE
+# ------------------------------------------------------------
+
+def print_comparison(band, pixel=PIXEL):
+    """Print analytical and stored values for one VNIR band."""
+
+    values = calculate_analytical_values(band, pixel)
+
+    files = {
+        "Radiance": f"ism_toa_isrf_VNIR-{band}.nc",
+        "Irradiance after MTF": f"ism_toa_optical_VNIR-{band}.nc",
+        "Electrons": f"ism_toa_e_VNIR-{band}.nc",
+        "After PRNU": f"ism_toa_prnu_VNIR-{band}.nc",
+        "After dark signal": f"ism_toa_ds_VNIR-{band}.nc",
+        "Detection": f"ism_toa_detection_VNIR-{band}.nc",
+        "DN": f"ism_toa_VNIR-{band}.nc",
+    }
+
+    analytical_keys = {
+        "Radiance": "Radiance",
+        "Irradiance after MTF": "Irradiance after MTF",
+        "Electrons": "Electrons analytical",
+        "DN": "DN analytical",
+    }
+
+    print("\n" + "=" * 94)
+    print(f"VNIR-{band} | Pixel {pixel}")
+    print("=" * 94)
+    print(
+        f"{'Stage':<27}"
+        f"{'Analytical':>22}"
+        f"{'Read value':>22}"
+        f"{'Difference':>22}"
+    )
+    print("-" * 94)
+
+    for stage, filename in files.items():
+        read_value = read_toa(filename, pixel)
+
+        if stage in analytical_keys:
+            analytical_value = values[analytical_keys[stage]]
+            difference = analytical_value - read_value
+
+            print(
+                f"{stage:<27}"
+                f"{analytical_value:>22.6f}"
+                f"{read_value:>22.6f}"
+                f"{difference:>22.6f}"
+            )
+        else:
+            # These stages depend on the implemented detector
+            # effects and are shown as stored values only.
+            print(
+                f"{stage:<27}"
+                f"{'N/A':>22}"
+                f"{read_value:>22.6f}"
+                f"{'N/A':>22}"
+            )
+
+    print("-" * 94)
+    print(f"{'Voltage analytical':<27}{values['Voltage analytical']:>22.6f}")
+    print(f"{'DN analytical':<27}{values['DN analytical']:>22}")
+    print(f"{'DN stored':<27}{values['DN stored']:>22.6f}")
+    print(f"{'DN difference':<27}{values['DN difference']:>22.6f}")
+
+
+# ------------------------------------------------------------
+# RUN ALL FOUR VNIR BANDS
+# ------------------------------------------------------------
 
 if __name__ == "__main__":
-
     cross_validate()
+    for band in range(4):
+        print_comparison(band)
+
+
